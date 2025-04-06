@@ -9,8 +9,8 @@ import shutil
 ROOT_DIR = "."
 TEMP_DIR = "temp_extracted"  # Temporary directory for extracted files
 
-# Current date (hardcoded to April 06, 2025, for this example; adjust as needed)
-CURRENT_DATE = datetime(2025, 4, 6)
+# Current date (set to today's date from system)
+CURRENT_DATE = datetime.now()
 
 def decode_mobileprovision(file_path, output_path):
     """Decode a .mobileprovision file into a .plist file using the security command."""
@@ -62,35 +62,49 @@ def extract_mobileprovision_from_ipa(ipa_path):
     """Extract embedded.mobileprovision from an .ipa file."""
     try:
         with zipfile.ZipFile(ipa_path, 'r') as ipa_zip:
+            extracted_paths = []
             # Look for embedded.mobileprovision in Payload/*.app/
             for file in ipa_zip.namelist():
                 if file.endswith("embedded.mobileprovision"):
-                    # Extract to temporary directory
+                    # Extract to temporary directory with unique name
+                    extract_path = os.path.join(TEMP_DIR, os.path.basename(file) + f"_{len(extracted_paths)}")
                     ipa_zip.extract(file, TEMP_DIR)
-                    extracted_path = os.path.join(TEMP_DIR, file)
-                    return extracted_path
-            print(f"{ipa_path}: No embedded.mobileprovision found")
-            return None
+                    # Move to avoid overwriting if multiple files
+                    shutil.move(os.path.join(TEMP_DIR, file), extract_path)
+                    extracted_paths.append(extract_path)
+            if not extracted_paths:
+                print(f"{ipa_path}: No embedded.mobileprovision found")
+            return extracted_paths
     except Exception as e:
         print(f"{ipa_path}: Error extracting - {str(e)}")
-        return None
+        return []
+
+def process_directory(directory):
+    """Recursively process directory for .mobileprovision and .ipa files."""
+    for root, _, files in os.walk(directory):
+        for filename in files:
+            file_path = os.path.join(root, filename)
+
+            if filename.endswith(".mobileprovision"):
+                # Check standalone .mobileprovision files
+                check_expiry(file_path)
+
+            elif filename.endswith(".ipa"):
+                # Extract and check embedded .mobileprovision from .ipa
+                extracted_paths = extract_mobileprovision_from_ipa(file_path)
+                for extracted_path in extracted_paths:
+                    check_expiry(extracted_path)
 
 def main():
-    # Process all files in the root directory
-    for filename in os.listdir(ROOT_DIR):
-        file_path = os.path.join(ROOT_DIR, filename)
+    # Ensure temp directory exists and is empty
+    if os.path.exists(TEMP_DIR):
+        shutil.rmtree(TEMP_DIR)
+    os.makedirs(TEMP_DIR)
 
-        if filename.endswith(".mobileprovision"):
-            # Check standalone .mobileprovision files
-            check_expiry(file_path)
+    # Process all files recursively
+    process_directory(ROOT_DIR)
 
-        elif filename.endswith(".ipa"):
-            # Extract and check embedded .mobileprovision from .ipa
-            extracted_path = extract_mobileprovision_from_ipa(file_path)
-            if extracted_path:
-                check_expiry(extracted_path)
-
-    # Clean up temporary directory if it exists
+    # Clean up temporary directory
     if os.path.exists(TEMP_DIR):
         shutil.rmtree(TEMP_DIR)
 
